@@ -58,6 +58,7 @@ export default function App() {
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
+    document.documentElement.classList.toggle('theme-light', theme === 'light');
   }, [theme]);
 
   useEffect(() => {
@@ -198,6 +199,7 @@ export default function App() {
             <input
               ref={searchRef}
               type="search"
+              className="search-input"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => {
@@ -219,7 +221,7 @@ export default function App() {
           </div>
           <button
             type="button"
-            className="icon-btn bordered"
+            className={`icon-btn bordered ${calcOpen ? 'is-pressed' : ''}`}
             aria-pressed={calcOpen}
             aria-label="Toggle calculator"
             title="Calculator"
