@@ -1,7 +1,8 @@
 .content { max-width: none; }
 .dashboard-grid { align-items: stretch; }
 .dashboard-slot { min-width: 0; display: flex; flex-direction: column; }
-.dashboard-slot > .widget, .dashboard-slot > .stats { flex: 1 1 auto; }
+.dashboard-slot &gt; .widget, .dashboard-slot &gt; .stats { flex: 1 1 auto; }
+.dashboard-slot &gt; .widget { height: 100%; }
 .dashboard-slot.span-4 { grid-column: span 4; }
 .dashboard-slot.span-6 { grid-column: span 6; }
 .dashboard-slot.span-8 { grid-column: span 8; }
@@ -50,9 +51,27 @@ html.accent-rose { --accent: #ff8bb5; --accent-strong: #c34476; --accent-soft: r
 html.theme-light.accent-rose { --accent: #b3446d; --accent-strong: #96375b; --accent-soft: rgba(179, 68, 109, 0.1); }
 html.accent-amber { --accent: #f3bd67; --accent-strong: #a67423; --accent-soft: rgba(243, 189, 103, 0.14); }
 html.theme-light.accent-amber { --accent: #9b6b18; --accent-strong: #80560f; --accent-soft: rgba(155, 107, 24, 0.1); }
+
+/\* Richer dark look: navy background, gradient cards, colored icon tiles, larger numbers \*/
+html:not(.theme-light) body { background: radial-gradient(1200px 600px at 80% -10%, rgba(121, 173, 255, 0.12), transparent 60%), linear-gradient(160deg, #0b1437 0%, #0f1a40 60%, #0b1437 100%) fixed; }
+html:not(.theme-light) .sidebar { background: rgba(11, 20, 55, 0.92); border-right-color: rgba(255, 255, 255, 0.06); }
+html:not(.theme-light) .topbar { background: transparent; border-bottom-color: rgba(255, 255, 255, 0.06); backdrop-filter: none; }
+html:not(.theme-light) .widget, html:not(.theme-light) .stat, html:not(.theme-light) .customize-panel { background: linear-gradient(180deg, rgba(31, 44, 96, 0.92), rgba(18, 27, 66, 0.92)); border-color: rgba(255, 255, 255, 0.07); box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28); }
+html:not(.theme-light) .stat { position: relative; overflow: hidden; padding: 20px 22px; }
+html:not(.theme-light) .stat::after { content: ''; position: absolute; right: -36px; top: -36px; width: 120px; height: 120px; border-radius: 50%; background: radial-gradient(circle, var(--accent-soft), transparent 70%); pointer-events: none; }
+html:not(.theme-light) .stat-value { font-size: 30px; color: #ffffff; }
+html:not(.theme-light) .widget-title h2 { font-size: 16px; color: #ffffff; }
+html:not(.theme-light) .widget-icon { width: 34px; height: 34px; background: linear-gradient(135deg, var(--accent), var(--accent-strong)); color: #ffffff; box-shadow: 0 6px 14px var(--accent-soft); }
+html:not(.theme-light) .count { background: rgba(255, 255, 255, 0.08); color: #dfe6ff; }
+html:not(.theme-light) .nav-item.active { background: linear-gradient(90deg, var(--accent-strong), var(--accent)); color: #ffffff; box-shadow: 0 8px 18px var(--accent-soft); }
+html:not(.theme-light) .btn.primary { background: linear-gradient(90deg, var(--accent-strong), var(--accent)); color: #ffffff; border: 0; }
+html:not(.theme-light) .btn.primary:hover:not(:disabled) { filter: brightness(1.08); }
+html:not(.theme-light) .task-list, html:not(.theme-light) .plain-list { gap: 2px; }
+html:not(.theme-light) .segmented { background: rgba(255, 255, 255, 0.05); }
+html:not(.theme-light) .dashboard-widget-tools { background: rgba(255, 255, 255, 0.04); }
+html:not(.theme-light) .stats { grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 18px; }
+html:not(.theme-light) .dashboard-slot &gt; .widget { padding: 20px; }
 @media (max-width: 760px) {
   .dashboard-slot.span-4, .dashboard-slot.span-6, .dashboard-slot.span-8 { grid-column: span 12; }
   .dashboard-widget-tools { align-items: flex-start; }
-  .dashboard-slot-actions { flex-wrap: wrap; }
-  .customize-panel { padding: 12px; }
-}
+  .dashboard-slot-actions { flex-wrap: wr
