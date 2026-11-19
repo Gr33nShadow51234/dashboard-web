@@ -22,7 +22,7 @@ const DASHBOARD_ACCENTS = ['violet', 'blue', 'teal', 'rose', 'amber'];
 const DEFAULT_DASHBOARD = {
   order: ['summary', 'tasks', 'completed', 'focus', 'weather', 'countdowns', 'notes', 'links'],
   hidden: [],
-  sizes: { summary: 12, tasks: 6, completed: 6, focus: 4, weather: 4, countdowns: 4, notes: 6, links: 6 },
+  sizes: { summary: 12, tasks: 8, completed: 4, focus: 4, weather: 4, countdowns: 4, notes: 6, links: 6 },
   accent: 'violet',
   density: 'comfortable',
 };
@@ -321,7 +321,7 @@ export function Overview({ store, timer, onNavigate }) {
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
   const dateLabel = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
-  const [dashboard, setDashboard] = useState(() => normalizeDashboardLayout(load('dashboard-layout', DEFAULT_DASHBOARD)));
+  const [dashboard, setDashboard] = useState(() => normalizeDashboardLayout(load('dashboard-layout-v2', DEFAULT_DASHBOARD)));
   const [savedLayouts, setSavedLayouts] = useState(() => normalizeSavedLayouts(load('dashboard-layouts', [])));
   const [editing, setEditing] = useState(false);
   const [draggedId, setDraggedId] = useState('');
@@ -330,7 +330,7 @@ export function Overview({ store, timer, onNavigate }) {
   const [activeLayoutId, setActiveLayoutId] = useState('');
   const [layoutMessage, setLayoutMessage] = useState('');
 
-  useEffect(() => save('dashboard-layout', dashboard), [dashboard]);
+  useEffect(() => save('dashboard-layout-v2', dashboard), [dashboard]);
   useEffect(() => save('dashboard-layouts', savedLayouts), [savedLayouts]);
   useEffect(() => {
     const root = document.documentElement;
@@ -611,8 +611,7 @@ export function Overview({ store, timer, onNavigate }) {
           return (
             <div
               key={id}
-              className={`dashboard-slot ${editing ? 'is-editing' : ''} ${dragOverId === id ? 'is-drag-over' : ''} ${draggedId === id ? 'is-dragging' : ''}`}
-              style={{ '--widget-span': String(span) }}
+              className={`dashboard-slot span-${span} ${editing ? 'is-editing' : ''} ${dragOverId === id ? 'is-drag-over' : ''} ${draggedId === id ? 'is-dragging' : ''}`}
               {...dragProps}
             >
               {editing && (
