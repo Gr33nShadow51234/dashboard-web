@@ -1,6 +1,6 @@
 # dashboard-web
 
-Personal "Khatib Dashboard": a React and Vite dashboard for tasks, notes, links, focus sessions, countdowns, weather and simple insights. All data is stored in the browser you use.
+Personal "Dashboard": a React and Vite dashboard for tasks, notes, links, focus sessions, countdowns, weather and simple insights. All data is stored in the browser you use.
 
 Live site: https://gr33nshadow51234.github.io/dashboard-web/
 
@@ -26,7 +26,7 @@ npm run build    # production build in dist/
 
 ## Data and backups
 
-Data is kept in the browser's localStorage under keys starting with `khatib-dashboard:`. Another browser or cleared site data starts empty. Use **Settings > Export backup** to save a JSON file and **Settings > Import** to restore it. **Reset all data** deletes everything in this browser after a confirmation.
+Data is kept in the browser's localStorage under keys starting with `dashboard:`. Another browser or cleared site data starts empty. Use **Settings > Export backup** to save a JSON file and **Settings > Import** to restore it. **Reset all data** deletes everything in this browser after a confirmation.
 
 ## Weather
 
