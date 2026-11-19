@@ -1,577 +1,252 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
-  Search, Home, StickyNote, ListTodo, Link as LinkIcon, Settings, Sun, Moon, Plus, Trash2, Check,
-  Calculator, CalendarDays, CloudSun, Pin, Menu, X, ExternalLink, LogIn,
+  Search, X, Menu, Sun, Moon, Calculator as CalcIcon, LayoutDashboard, ListTodo, StickyNote, Link as LinkIcon,
+  BarChart3, Settings,
 } from 'lucide-react';
-import Widget from './components/Widget.jsx';
 import { load, save } from './lib/storage.js';
-import { signInMicrosoft, listTodoLists } from './lib/msgraph.js';
+import { asList, normTask, normNote, normLink, normEvent, normFocus, normCity, uid } from './lib/model.js';
+import { Overview, useFocusTimer } from './components/Overview.jsx';
+import { TasksPage, NotesPage, LinksPage, InsightsPage, SettingsPage, SearchResults, Calculator } from './components/Views.jsx';
 
-const starterLinks = [
-  { id: 1, title: 'Jellyfin', url: 'http://localhost:8096', category: 'Media' },
-  { id: 2, title: 'Radarr', url: 'http://localhost:7878', category: 'Media' },
-  { id: 3, title: 'Sonarr', url: 'http://localhost:8989', category: 'Media' },
+const STARTER_LINKS = [
+  { id: 'starter-jellyfin', title: 'Jellyfin', url: 'http://localhost:8096', category: 'Media', favorite: false },
+  { id: 'starter-radarr', title: 'Radarr', url: 'http://localhost:7878', category: 'Media', favorite: false },
+  { id: 'starter-sonarr', title: 'Sonarr', url: 'http://localhost:8989', category: 'Media', favorite: false },
 ];
 
-const NAV = [
-  { label: 'Home', icon: Home },
-  { label: 'Notes', icon: StickyNote },
-  { label: 'Tasks', icon: ListTodo },
-  { label: 'Links', icon: LinkIcon },
-  { label: 'Settings', icon: Settings },
+const PAGES = [
+  { id: 'overview', label: 'Overview', icon: LayoutDashboard },
+  { id: 'tasks', label: 'Tasks', icon: ListTodo },
+  { id: 'notes', label: 'Notes', icon: StickyNote },
+  { id: 'links', label: 'Links', icon: LinkIcon },
+  { id: 'insights', label: 'Insights', icon: BarChart3 },
+  { id: 'settings', label: 'Settings', icon: Settings },
 ];
+const PAGE_IDS = PAGES.map((p) => p.id);
 
-const greeting = () => {
-  const h = new Date().getHours();
-  return h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening';
-};
-const todayLabel = () =>
-  new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' });
-const daysUntil = (date) =>
-  Math.ceil((new Date(date + 'T00:00:00') - new Date(new Date().toDateString())) / 86400000);
-const countdownLabel = (days) =>
-  days < 0 ? 'Passed' : days === 0 ? 'Today' : `${days} ${days === 1 ? 'day' : 'days'}`;
-
-function Stat({ label, value, sub }) {
-  return (
-    <div className="stat">
-      <small>{label}</small>
-      <strong title={String(value)}>{value}</strong>
-      {sub && <span>{sub}</span>}
-    </div>
-  );
+// The current page lives in the URL hash, so a refresh keeps you on the same page.
+function pageFromHash() {
+  if (typeof window === 'undefined') return 'overview';
+  const id = window.location.hash.replace('#', '');
+  return PAGE_IDS.includes(id) ? id : 'overview';
 }
 
-function App() {
-  const [theme, setTheme] = useState(() => load('theme', 'dark'));
-  const [notes, setNotes] = useState(() => load('notes', []));
-  const [tasks, setTasks] = useState(() => load('tasks', []));
-  const [links, setLinks] = useState(() => load('links', starterLinks));
-  const [events, setEvents] = useState(() => load('events', []));
+function usePersisted(key, fallback, normalize) {
+  const [value, setValue] = useState(() => normalize(load(key, fallback)));
+  useEffect(() => {
+    save(key, value);
+  }, [key, value]);
+  return [value, setValue];
+}
+
+const isTyping = (el) => !!el && (el.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName));
+
+export default function App() {
+  const [theme, setTheme] = usePersisted('theme', 'dark', (v) => (v === 'light' ? 'light' : 'dark'));
+  const [tasks, setTasks] = usePersisted('tasks', [], (v) => asList(v, normTask));
+  const [notes, setNotes] = usePersisted('notes', [], (v) => asList(v, normNote));
+  const [links, setLinks] = usePersisted('links', STARTER_LINKS, (v) => asList(v, normLink));
+  const [events, setEvents] = usePersisted('events', [], (v) => asList(v, normEvent));
+  const [focus, setFocus] = usePersisted('focus', [], (v) => asList(v, normFocus));
+  const [city, setCity] = usePersisted('city', null, normCity);
+
+  const [page, setPageState] = useState(pageFromHash);
   const [query, setQuery] = useState('');
-  const [noteText, setNoteText] = useState('');
-  const [taskText, setTaskText] = useState('');
-  const [linkTitle, setLinkTitle] = useState('');
-  const [linkUrl, setLinkUrl] = useState('');
-  const [eventText, setEventText] = useState('');
-  const [eventDate, setEventDate] = useState('');
   const [mobileNav, setMobileNav] = useState(false);
-  const [activeTab, setActiveTab] = useState('Home');
-  const [msStatus, setMsStatus] = useState('Not connected');
   const [calcOpen, setCalcOpen] = useState(false);
-  const [calcInput, setCalcInput] = useState('');
+  const searchRef = useRef(null);
 
   useEffect(() => {
-    save('theme', theme);
     document.documentElement.dataset.theme = theme;
   }, [theme]);
-  useEffect(() => save('notes', notes), [notes]);
-  useEffect(() => save('tasks', tasks), [tasks]);
-  useEffect(() => save('links', links), [links]);
-  useEffect(() => save('events', events), [events]);
 
-  const filteredLinks = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return links.filter((l) => `${l.title} ${l.url} ${l.category}`.toLowerCase().includes(q));
-  }, [links, query]);
+  useEffect(() => {
+    const onHash = () => setPageState(pageFromHash());
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
 
-  const openTasks = tasks.filter((t) => !t.done).length;
-  const nextEvent = useMemo(
-    () =>
-      events
-        .map((e) => ({ ...e, days: daysUntil(e.date) }))
-        .filter((e) => e.days >= 0)
-        .sort((a, b) => a.days - b.days)[0],
-    [events],
-  );
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key !== '/' || e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return;
+      if (isTyping(e.target)) return;
+      e.preventDefault();
+      searchRef.current?.focus();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
-  const addNote = () => {
-    const text = noteText.trim();
-    if (!text) return;
-    setNotes((prev) => [{ id: crypto.randomUUID(), text, createdAt: Date.now() }, ...prev]);
-    setNoteText('');
-  };
-  const addTask = () => {
-    const text = taskText.trim();
-    if (!text) return;
-    setTasks((prev) => [{ id: crypto.randomUUID(), text, done: false, createdAt: Date.now() }, ...prev]);
-    setTaskText('');
-  };
-  const addLink = () => {
-    const title = linkTitle.trim();
-    let url = linkUrl.trim();
-    if (!title || !url) return;
-    if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
-    setLinks((prev) => [{ id: crypto.randomUUID(), title, url, category: 'General' }, ...prev]);
-    setLinkTitle('');
-    setLinkUrl('');
-  };
-  const addEvent = () => {
-    const title = eventText.trim();
-    if (!title || !eventDate) return;
-    setEvents((prev) => [{ id: crypto.randomUUID(), title, date: eventDate }, ...prev]);
-    setEventText('');
-    setEventDate('');
-  };
+  const addFocus = (minutes) =>
+    setFocus((prev) => [normFocus({ id: uid(), at: Date.now(), minutes }), ...prev]);
+  // The timer lives here so it keeps running while the user moves between pages.
+  const timer = useFocusTimer(addFocus);
 
-  const toggleTask = (id) =>
-    setTasks((prev) => prev.map((x) => (x.id === id ? { ...x, done: !x.done } : x)));
-  const removeTask = (id) => setTasks((prev) => prev.filter((x) => x.id !== id));
-  const removeNote = (id) => setNotes((prev) => prev.filter((x) => x.id !== id));
-  const removeLink = (id) => setLinks((prev) => prev.filter((x) => x.id !== id));
-  const removeEvent = (id) => setEvents((prev) => prev.filter((x) => x.id !== id));
-
-  const runCalc = () => {
-    try {
-      const safe = calcInput.replace(/[^0-9+\-*/().% ]/g, '');
-      setCalcInput(String(Function(`return (${safe})`)()));
-    } catch {
-      setCalcInput('Error');
-    }
-  };
-
-  const connectMicrosoft = async () => {
-    setMsStatus('Connecting…');
-    try {
-      await signInMicrosoft();
-      const lists = await listTodoLists();
-      setMsStatus(`Connected · ${lists.value?.length ?? 0} lists found`);
-    } catch (e) {
-      setMsStatus(e.message);
-    }
+  const store = {
+    tasks,
+    notes,
+    links,
+    events,
+    focus,
+    city,
+    theme,
+    setTheme: (t) => setTheme(t === 'light' ? 'light' : 'dark'),
+    setCity: (c) => setCity(normCity(c)),
+    addTask: (fields) =>
+      setTasks((prev) => [normTask({ ...fields, id: uid(), createdAt: Date.now(), done: false, completedAt: null }), ...prev]),
+    toggleTask: (id) =>
+      setTasks((prev) =>
+        prev.map((t) => (t.id === id ? { ...t, done: !t.done, completedAt: t.done ? null : Date.now() } : t)),
+      ),
+    updateTask: (id, patch) => setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, ...patch } : t))),
+    removeTask: (id) => setTasks((prev) => prev.filter((t) => t.id !== id)),
+    addNote: (text) => setNotes((prev) => [{ id: uid(), text, createdAt: Date.now(), pinned: false }, ...prev]),
+    updateNote: (id, patch) => setNotes((prev) => prev.map((n) => (n.id === id ? { ...n, ...patch } : n))),
+    removeNote: (id) => setNotes((prev) => prev.filter((n) => n.id !== id)),
+    addLink: (fields) => setLinks((prev) => [normLink({ id: uid(), favorite: false, ...fields }), ...prev]),
+    updateLink: (id, patch) => setLinks((prev) => prev.map((l) => (l.id === id ? { ...l, ...patch } : l))),
+    removeLink: (id) => setLinks((prev) => prev.filter((l) => l.id !== id)),
+    addEvent: (fields) => setEvents((prev) => [...prev, normEvent({ id: uid(), ...fields })]),
+    removeEvent: (id) => setEvents((prev) => prev.filter((e) => e.id !== id)),
+    replaceAll: (data) => {
+      if (Array.isArray(data.tasks)) setTasks(asList(data.tasks, normTask));
+      if (Array.isArray(data.notes)) setNotes(asList(data.notes, normNote));
+      if (Array.isArray(data.links)) setLinks(asList(data.links, normLink));
+      if (Array.isArray(data.events)) setEvents(asList(data.events, normEvent));
+      if (Array.isArray(data.focus)) setFocus(asList(data.focus, normFocus));
+      if (data.theme === 'light' || data.theme === 'dark') setTheme(data.theme);
+      if ('city' in data) setCity(normCity(data.city));
+    },
+    resetAll: () => {
+      setTasks([]);
+      setNotes([]);
+      setLinks([]);
+      setEvents([]);
+      setFocus([]);
+      setCity(null);
+    },
   };
 
-  const go = (label) => {
-    setActiveTab(label);
+  const go = (id) => {
+    setQuery('');
     setMobileNav(false);
+    if (typeof window !== 'undefined' && window.location.hash !== `#${id}`) window.location.hash = id;
+    setPageState(id);
   };
 
-  const taskRows = tasks.map((t) => (
-    <div className={`row ${t.done ? 'done' : ''}`} key={t.id}>
-      <button className="check" onClick={() => toggleTask(t.id)} aria-label={t.done ? 'Mark as open' : 'Mark as done'}>
-        {t.done && <Check size={13} />}
-      </button>
-      <span className="row-text">{t.text}</span>
-      <button className="icon-btn" onClick={() => removeTask(t.id)} aria-label="Delete task">
-        <Trash2 size={14} />
-      </button>
-    </div>
-  ));
+  const openCount = tasks.filter((t) => !t.done).length;
+  const searching = query.trim().length > 0;
 
-  const noteCards = notes.map((n) => (
-    <article className="note" key={n.id}>
-      <p>{n.text}</p>
-      <small>{new Date(n.createdAt).toLocaleString()}</small>
-      <button className="icon-btn note-delete" onClick={() => removeNote(n.id)} aria-label="Delete note">
-        <Trash2 size={14} />
-      </button>
-    </article>
-  ));
-
-  const linkRows = filteredLinks.map((l) => (
-    <a className="link-row" href={l.url} target="_blank" rel="noreferrer" key={l.id}>
-      <span className="link-favicon" aria-hidden="true">{l.title.charAt(0).toUpperCase()}</span>
-      <span className="link-text">
-        <strong>{l.title}</strong>
-        <small>{l.url}</small>
-      </span>
-      <ExternalLink size={14} className="link-ext" aria-hidden="true" />
-    </a>
-  ));
-
-  const eventRows = events.map((ev) => {
-    const days = daysUntil(ev.date);
-    return (
-      <div className="event-row" key={ev.id}>
-        <div className="event-main">
-          <strong>{ev.title}</strong>
-          <small>{new Date(ev.date + 'T00:00:00').toLocaleDateString()}</small>
-        </div>
-        <span className="days">{countdownLabel(days)}</span>
-        <button className="icon-btn" onClick={() => removeEvent(ev.id)} aria-label="Delete countdown">
-          <Trash2 size={14} />
-        </button>
-      </div>
-    );
-  });
-
-  const homeView = (
-    <div className="grid">
-      <Widget className="w-12" title="Quick capture" icon={<Plus size={16} />}>
-        <div className="input-row">
-          <input
-            value={taskText}
-            onChange={(e) => setTaskText(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && addTask()}
-            placeholder="Capture a task…"
-            aria-label="New task"
-          />
-          <button className="primary" onClick={addTask}><Plus size={16} /> Add task</button>
-        </div>
-        <div className="input-row">
-          <input
-            value={noteText}
-            onChange={(e) => setNoteText(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && addNote()}
-            placeholder="Write a note…"
-            aria-label="New note"
-          />
-          <button className="secondary" onClick={addNote}>Save note</button>
-        </div>
-      </Widget>
-
-      <Widget
-        className="w-5"
-        tall
-        title="Tasks"
-        icon={<ListTodo size={16} />}
-        extra={<span className="count">{openTasks} open</span>}
-      >
-        <div className="task-list">
-          {tasks.length === 0 ? <p className="empty">No tasks yet. Add one using Quick capture.</p> : taskRows}
-        </div>
-      </Widget>
-
-      <Widget
-        className="w-7"
-        tall
-        title="Notes"
-        icon={<StickyNote size={16} />}
-        extra={<span className="count">{notes.length}</span>}
-      >
-        <div className="notes-grid">
-          {notes.length === 0 ? <p className="empty">Your notes will appear here.</p> : noteCards}
-        </div>
-      </Widget>
-
-      <Widget
-        className="w-4"
-        tall
-        title="Quick links"
-        icon={<LinkIcon size={16} />}
-        extra={<span className="count">{filteredLinks.length}</span>}
-      >
-        <div className="link-list">
-          {filteredLinks.length === 0 ? <p className="empty">No matching links.</p> : linkRows}
-        </div>
-        <AddLinkForm
-          linkTitle={linkTitle}
-          setLinkTitle={setLinkTitle}
-          linkUrl={linkUrl}
-          setLinkUrl={setLinkUrl}
-          onAdd={addLink}
-        />
-      </Widget>
-
-      <Widget
-        className="w-4"
-        tall
-        title="Countdowns"
-        icon={<CalendarDays size={16} />}
-        extra={<span className="count">{events.length}</span>}
-      >
-        <div className="event-form">
-          <input
-            placeholder="Event name"
-            value={eventText}
-            onChange={(e) => setEventText(e.target.value)}
-            aria-label="Event name"
-          />
-          <input
-            type="date"
-            value={eventDate}
-            onChange={(e) => setEventDate(e.target.value)}
-            aria-label="Event date"
-          />
-          <button className="primary" onClick={addEvent} aria-label="Add countdown"><Plus size={15} /></button>
-        </div>
-        <div className="event-list">
-          {events.length === 0 ? <p className="empty">No countdowns added.</p> : eventRows}
-        </div>
-      </Widget>
-
-      <Widget className="w-4" tall title="Microsoft To Do" icon={<Pin size={16} />}>
-        <div className="ms-status">
-          <span className="ms-dot" data-connected={msStatus.startsWith('Connected')} aria-hidden="true" />
-          <span>{msStatus}</span>
-        </div>
-        <button className="secondary full" onClick={connectMicrosoft}>
-          <LogIn size={16} /> Connect Microsoft
-        </button>
-        <p className="hint">
-          Configure your Entra app client ID in <code>src/lib/config.js</code> first.
-        </p>
-      </Widget>
-    </div>
-  );
-
-  const pageView = (title, icon, extra, body) => (
-    <div className="grid">
-      <Widget className="w-12" title={title} icon={icon} extra={extra}>
-        {body}
-      </Widget>
-    </div>
-  );
+  let content;
+  if (searching) content = <SearchResults query={query} store={store} onOpen={go} />;
+  else if (page === 'tasks') content = <TasksPage store={store} />;
+  else if (page === 'notes') content = <NotesPage store={store} />;
+  else if (page === 'links') content = <LinksPage store={store} />;
+  else if (page === 'insights') content = <InsightsPage store={store} />;
+  else if (page === 'settings') content = <SettingsPage store={store} />;
+  else content = <Overview store={store} timer={timer} onNavigate={go} />;
 
   return (
     <div className="app-shell">
       <div className={`scrim ${mobileNav ? 'show' : ''}`} onClick={() => setMobileNav(false)} aria-hidden="true" />
 
-      <aside className={`sidebar ${mobileNav ? 'open' : ''}`}>
+      <aside className={`sidebar ${mobileNav ? 'open' : ''}`} aria-label="Sidebar">
         <div className="brand">
           <div className="brand-mark" aria-hidden="true">K</div>
           <div>
             <strong>Khatib</strong>
             <small>Dashboard</small>
           </div>
-          <button className="mobile-close" onClick={() => setMobileNav(false)} aria-label="Close menu">
-            <X size={18} />
+          <button type="button" className="icon-btn mobile-only" onClick={() => setMobileNav(false)} aria-label="Close menu">
+            <X size={18} aria-hidden="true" />
           </button>
         </div>
-        <nav className="nav">
-          {NAV.map(({ label, icon: Icon }) => (
-            <button
-              key={label}
-              className={`nav-item ${activeTab === label ? 'active' : ''}`}
-              onClick={() => go(label)}
-              aria-current={activeTab === label ? 'page' : undefined}
-            >
-              <Icon size={18} />
-              <span>{label}</span>
-              {label === 'Tasks' && openTasks > 0 && <span className="nav-badge">{openTasks}</span>}
-            </button>
-          ))}
+        <nav className="nav" aria-label="Pages">
+          {PAGES.map(({ id, label, icon: Icon }) => {
+            const active = !searching && page === id;
+            return (
+              <button
+                key={id}
+                type="button"
+                className={`nav-item ${active ? 'active' : ''}`}
+                onClick={() => go(id)}
+                aria-current={active ? 'page' : undefined}
+              >
+                <Icon size={18} aria-hidden="true" />
+                <span className="nav-label">{label}</span>
+                {id === 'tasks' && openCount > 0 && <span className="nav-badge">{openCount}</span>}
+              </button>
+            );
+          })}
         </nav>
-        <div className="sidebar-bottom">
-          <div className="profile">
-            <div className="avatar" aria-hidden="true">N</div>
-            <div>
-              <strong>Nico</strong>
-              <small>Personal workspace</small>
-            </div>
+        <div className="profile">
+          <div className="avatar" aria-hidden="true">N</div>
+          <div>
+            <strong>Nico</strong>
+            <small>Personal workspace</small>
           </div>
         </div>
       </aside>
 
-      <main className="main">
-        <div className="topbar">
-          <button className="menu-btn" onClick={() => setMobileNav(true)} aria-label="Open menu">
-            <Menu size={20} />
+      <div className="main">
+        <header className="topbar">
+          <button type="button" className="icon-btn menu-btn" onClick={() => setMobileNav(true)} aria-label="Open menu">
+            <Menu size={20} aria-hidden="true" />
           </button>
-          <label className="searchbox">
+          <div className="searchbox" role="search">
             <Search size={16} aria-hidden="true" />
             <input
-              placeholder="Search links"
-              aria-label="Search links"
+              ref={searchRef}
+              type="search"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') {
+                  setQuery('');
+                  e.currentTarget.blur();
+                }
+              }}
+              placeholder="Search tasks, notes, links..."
+              aria-label="Search"
             />
-            {query && (
-              <button className="clear-btn" onClick={() => setQuery('')} aria-label="Clear search">
-                <X size={15} />
+            {query ? (
+              <button type="button" className="icon-btn" onClick={() => setQuery('')} aria-label="Clear search">
+                <X size={15} aria-hidden="true" />
               </button>
+            ) : (
+              <kbd aria-hidden="true">/</kbd>
             )}
-          </label>
+          </div>
           <button
-            className="icon-square"
-            title="Calculator"
-            aria-label="Toggle calculator"
+            type="button"
+            className="icon-btn bordered"
             aria-pressed={calcOpen}
+            aria-label="Toggle calculator"
+            title="Calculator"
             onClick={() => setCalcOpen((v) => !v)}
           >
-            <Calculator size={17} />
+            <CalcIcon size={17} aria-hidden="true" />
           </button>
           <button
-            className="icon-square"
+            type="button"
+            className="icon-btn bordered"
+            aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+            title={theme === 'dark' ? 'Light theme' : 'Dark theme'}
             onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-            title="Toggle theme"
-            aria-label="Toggle theme"
           >
-            {theme === 'dark' ? <Sun size={17} /> : <Moon size={17} />}
+            {theme === 'dark' ? <Sun size={17} aria-hidden="true" /> : <Moon size={17} aria-hidden="true" />}
           </button>
-        </div>
+        </header>
 
-        {calcOpen && (
-          <div className="calculator">
-            <input
-              value={calcInput}
-              onChange={(e) => setCalcInput(e.target.value)}
-              placeholder="Expression"
-              aria-label="Calculator expression"
-            />
-            <button className="primary" onClick={runCalc}>Calculate</button>
-            <button className="secondary" onClick={() => setCalcInput('')}>Clear</button>
-          </div>
-        )}
-
-        <section className="hero">
-          <div>
-            <p className="eyebrow">{todayLabel()}</p>
-            <h1>
-              {greeting()}, <span>Nico</span>
-            </h1>
-            <p className="welcome-sub">Here’s your personal overview.</p>
-          </div>
-          <div className="stats">
-            <Stat label="Open tasks" value={openTasks} sub={`${tasks.length} total`} />
-            <Stat label="Notes" value={notes.length} />
-            <Stat label="Links" value={links.length} />
-            <Stat
-              label="Next countdown"
-              value={nextEvent ? nextEvent.title : 'None'}
-              sub={nextEvent ? countdownLabel(nextEvent.days) : 'Add one below'}
-            />
-            <Stat label="Weather" value="Not connected" sub={<CloudSun size={14} />} />
-          </div>
-        </section>
-
-        {activeTab === 'Home' && homeView}
-
-        {activeTab === 'Notes' &&
-          pageView(
-            'All notes',
-            <StickyNote size={16} />,
-            <span className="count">{notes.length}</span>,
-            <>
-              <div className="input-row">
-                <textarea
-                  value={noteText}
-                  onChange={(e) => setNoteText(e.target.value)}
-                  placeholder="Write a note…"
-                  aria-label="New note"
-                />
-                <button className="primary" onClick={addNote}>Save</button>
-              </div>
-              <div className="notes-grid">
-                {notes.length === 0 ? <p className="empty">No notes yet.</p> : noteCards}
-              </div>
-            </>,
+        <main className="content" id="main">
+          {calcOpen && (
+            <div className="calc-wrap">
+              <Calculator onClose={() => setCalcOpen(false)} />
+            </div>
           )}
-
-        {activeTab === 'Tasks' &&
-          pageView(
-            'All tasks',
-            <ListTodo size={16} />,
-            <span className="count">{openTasks} open</span>,
-            <>
-              <div className="input-row">
-                <input
-                  value={taskText}
-                  onChange={(e) => setTaskText(e.target.value)}
-                  placeholder="New task"
-                  aria-label="New task"
-                  onKeyDown={(e) => e.key === 'Enter' && addTask()}
-                />
-                <button className="primary" onClick={addTask}>Add task</button>
-              </div>
-              <div className="task-list">
-                {tasks.length === 0 ? <p className="empty">No tasks yet.</p> : taskRows}
-              </div>
-            </>,
-          )}
-
-        {activeTab === 'Links' &&
-          pageView(
-            'Links',
-            <LinkIcon size={16} />,
-            <span className="count">{links.length}</span>,
-            <>
-              <AddLinkForm
-                linkTitle={linkTitle}
-                setLinkTitle={setLinkTitle}
-                linkUrl={linkUrl}
-                setLinkUrl={setLinkUrl}
-                onAdd={addLink}
-              />
-              <div className="link-list">
-                {links.map((l) => (
-                  <div className="row" key={l.id}>
-                    <span className="link-favicon" aria-hidden="true">{l.title.charAt(0).toUpperCase()}</span>
-                    <a className="row-text link-inline" href={l.url} target="_blank" rel="noreferrer">
-                      <strong>{l.title}</strong> <small>{l.url}</small>
-                    </a>
-                    <button className="icon-btn" onClick={() => removeLink(l.id)} aria-label="Delete link">
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </>,
-          )}
-
-        {activeTab === 'Settings' &&
-          pageView(
-            'Settings',
-            <Settings size={16} />,
-            null,
-            <>
-              <div className="settings-row">
-                <div>
-                  <strong>Appearance</strong>
-                  <small>Switch between light and dark theme</small>
-                </div>
-                <button className="secondary" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}>
-                  {theme === 'dark' ? 'Light mode' : 'Dark mode'}
-                </button>
-              </div>
-              <div className="settings-row">
-                <div>
-                  <strong>Local data</strong>
-                  <small>Notes, tasks, links and countdowns are saved in this browser.</small>
-                </div>
-                <button
-                  className="secondary"
-                  onClick={() => {
-                    if (confirm('Export dashboard data as JSON?')) {
-                      const blob = new Blob(
-                        [JSON.stringify({ notes, tasks, links, events, theme }, null, 2)],
-                        { type: 'application/json' },
-                      );
-                      const a = document.createElement('a');
-                      a.href = URL.createObjectURL(blob);
-                      a.download = 'khatib-dashboard-backup.json';
-                      a.click();
-                      URL.revokeObjectURL(a.href);
-                    }
-                  }}
-                >
-                  Export backup
-                </button>
-              </div>
-              <div className="settings-row">
-                <div>
-                  <strong>Reset local data</strong>
-                  <small>Deletes notes, tasks, links and countdowns from this browser.</small>
-                </div>
-                <button
-                  className="danger"
-                  onClick={() => {
-                    if (confirm('Delete all dashboard data?')) {
-                      setNotes([]);
-                      setTasks([]);
-                      setLinks([]);
-                      setEvents([]);
-                    }
-                  }}
-                >
-                  Reset
-                </button>
-              </div>
-            </>,
-          )}
-      </main>
+          {content}
+        </main>
+      </div>
     </div>
   );
 }
-
-function AddLinkForm({ linkTitle, setLinkTitle, linkUrl, setLinkUrl, onAdd }) {
-  return (
-    <div className="add-form">
-      <input placeholder="Link name" value={linkTitle} onChange={(e) => setLinkTitle(e.target.value)} aria-label="Link name" />
-      <input placeholder="https://…" value={linkUrl} onChange={(e) => setLinkUrl(e.target.value)} aria-label="Link URL" />
-      <button className="primary" onClick={onAdd}><Plus size={15} /> Add</button>
-    </div>
-  );
-}
-
-export default App;
