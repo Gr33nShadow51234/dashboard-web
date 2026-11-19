@@ -1,7 +1,11 @@
 .content { max-width: none; }
-.dashboard-grid { align-items: start; }
-.dashboard-slot { min-width: 0; grid-column: span var(--widget-span, 6); }
-.dashboard-slot .widget { height: 100%; }
+.dashboard-grid { align-items: stretch; }
+.dashboard-slot { min-width: 0; display: flex; flex-direction: column; }
+.dashboard-slot > .widget, .dashboard-slot > .stats { flex: 1 1 auto; }
+.dashboard-slot.span-4 { grid-column: span 4; }
+.dashboard-slot.span-6 { grid-column: span 6; }
+.dashboard-slot.span-8 { grid-column: span 8; }
+.dashboard-slot.span-12 { grid-column: span 12; }
 .dashboard-slot.is-drag-over { outline: 2px dashed var(--accent); outline-offset: 3px; }
 .dashboard-slot.is-dragging { opacity: .55; }
 .dashboard-widget-tools { min-width: 0; margin-bottom: 8px; padding: 6px 8px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel2); }
@@ -47,7 +51,7 @@ html.theme-light.accent-rose { --accent: #b3446d; --accent-strong: #96375b; --ac
 html.accent-amber { --accent: #f3bd67; --accent-strong: #a67423; --accent-soft: rgba(243, 189, 103, 0.14); }
 html.theme-light.accent-amber { --accent: #9b6b18; --accent-strong: #80560f; --accent-soft: rgba(155, 107, 24, 0.1); }
 @media (max-width: 760px) {
-  .dashboard-slot { grid-column: span 12; }
+  .dashboard-slot.span-4, .dashboard-slot.span-6, .dashboard-slot.span-8 { grid-column: span 12; }
   .dashboard-widget-tools { align-items: flex-start; }
   .dashboard-slot-actions { flex-wrap: wrap; }
   .customize-panel { padding: 12px; }
